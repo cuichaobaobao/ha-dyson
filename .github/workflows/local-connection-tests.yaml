@@ -2,7 +2,7 @@ name: Local connection regression tests
 
 on:
   push:
-    branches: [fix/local-discovery-lifecycle]
+    branches: [main, fix/local-discovery-lifecycle]
   pull_request:
   workflow_dispatch:
 
@@ -50,3 +50,74 @@ jobs:
         run: python -m compileall -q custom_components/dyson_local
       - name: Run isolated network and lifecycle regressions
         run: python -m unittest discover -s tests_repair -v
+
+  release:
+    name: Publish a new fork version
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify checks and publish an unreleased version
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const sha = context.sha;
+            const manifest = JSON.parse(fs.readFileSync('custom_components/dyson_local/manifest.json', 'utf8'));
+            if (!/^\d+\.\d+\.\d+$/.test(manifest.version)) {
+              throw new Error('Expected a stable major.minor.patch version');
+            }
+            const tag = 'v' + manifest.version;
+            try {
+              await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+              core.info(tag + ' is already published; leave it unchanged.');
+              return;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            const required = ['HACS Action', 'Validate with hassfest'];
+            let passed = false;
+            for (let attempt = 0; attempt < 30; attempt++) {
+              const { data } = await github.rest.actions.listWorkflowRunsForRepo({
+                owner, repo, head_sha: sha, event: 'push', per_page: 100
+              });
+              const checks = required.map(name =>
+                data.workflow_runs.find(run => run.name === name && run.head_sha === sha)
+              );
+              if (checks.some(run => run && run.status === 'completed' && run.conclusion !== 'success')) {
+                throw new Error('A required validation did not succeed; release withheld.');
+              }
+              if (checks.every(run => run && run.status === 'completed' && run.conclusion === 'success')) {
+                passed = true;
+                break;
+              }
+              await new Promise(resolve => setTimeout(resolve, 10000));
+            }
+            if (!passed) throw new Error('Timed out waiting for HACS and hassfest.');
+            const { data: branch } = await github.rest.repos.getBranch({ owner, repo, branch: 'main' });
+            if (branch.commit.sha !== sha) {
+              core.info('main has advanced; let its validation publish the version.');
+              return;
+            }
+            const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+            const marker = '## ' + manifest.version + ' ';
+            const start = changelog.indexOf(marker);
+            if (start < 0) throw new Error('Missing changelog entry for ' + tag);
+            const next = changelog.indexOf('\n## ', start + marker.length);
+            const body = changelog.slice(start, next < 0 ? undefined : next).trim()
+              + '\n\nValidated commit: ' + sha
+              + '\nChecks: https://github.com/' + owner + '/' + repo + '/actions/runs/' + context.runId;
+            const { data: release } = await github.rest.repos.createRelease({
+              owner, repo, tag_name: tag, target_commitish: sha,
+              name: 'Dyson ' + tag + ' — fork maintenance release',
+              body, draft: false, prerelease: false
+            });
+            core.info('Published ' + release.html_url);

@@ -1,13 +1,20 @@
 {
     "domain": "dyson_local",
     "name": "Dyson",
-    "codeowners": ["@libdyson-wg", "@dotvezz", "@cmgrayb"],
+    "codeowners": [
+        "@cuichaobaobao"
+    ],
     "config_flow": true,
-    "dependencies": ["mqtt", "zeroconf"],
-    "documentation": "https://github.com/libdyson-wg/ha-dyson",
+    "dependencies": [
+        "mqtt",
+        "zeroconf"
+    ],
+    "documentation": "https://github.com/cuichaobaobao/ha-dyson",
     "import_executor": true,
     "iot_class": "local_push",
-    "issue_tracker": "https://github.com/libdyson-wg/ha-dyson/issues",
-    "requirements": ["libdyson-neon==1.6.0"],
-    "version": "1.7.0"
+    "issue_tracker": "https://github.com/cuichaobaobao/ha-dyson/issues",
+    "requirements": [
+        "libdyson-neon==1.6.0"
+    ],
+    "version": "1.7.1"
 }
