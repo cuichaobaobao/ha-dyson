@@ -1,12 +1,10 @@
 """Config flow for Dyson integration."""
 
 import logging
-import threading
 from typing import Optional
 
 from libdyson import DEVICE_TYPE_NAMES, get_device, get_mqtt_info_from_wifi_info
 from libdyson.cloud import DysonDeviceInfo
-from libdyson.discovery import DysonDiscovery
 from libdyson.exceptions import (
     DysonException,
     DysonFailedToParseWifiInfo,
@@ -44,7 +42,6 @@ from libdyson.const import (
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.components.zeroconf import async_get_instance
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_EMAIL, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import HomeAssistantError
 
@@ -54,7 +51,8 @@ from .cloud.const import CONF_REGION, CONF_AUTH
 
 _LOGGER = logging.getLogger(__name__)
 
-DISCOVERY_TIMEOUT = 10
+from .connection import async_connect_device, async_discover_host
+from .device_type import resolve_device_type
 
 CONF_METHOD = "method"
 CONF_SSID = "ssid"
@@ -412,8 +410,8 @@ class DysonLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle step to set host."""
         errors = {}
         if info is not None:
-            # Use the device info's built-in mapping method which handles variants properly
-            device_type = self._device_info.get_device_type()
+            # Preserve supported variant-specific MQTT topics.
+            device_type = resolve_device_type(self._device_info)
             
             _LOGGER.debug("Cloud ProductType: %s, variant: %s, Mapped to: %s", 
                          self._device_info.product_type, getattr(self._device_info, 'variant', None), device_type)
@@ -433,6 +431,8 @@ class DysonLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         info.get(CONF_NAME),
                         info.get(CONF_HOST),
                     )
+                except InvalidAuth:
+                    errors["base"] = "invalid_auth"
                 except CannotConnect:
                     errors["base"] = "cannot_connect"
                 except CannotFind:
@@ -488,6 +488,7 @@ class DysonLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         host: Optional[str] = None,
     ) -> Optional[str]:
         """Try connect and return config entry data."""
+        host = (host or "").strip() or None
         await self._async_try_connect(serial, credential, device_type, host)
         return {
             CONF_SERIAL: serial,
@@ -504,74 +505,25 @@ class DysonLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         device_type: str,
         host: Optional[str] = None,
     ) -> None:
-        """Try connect."""
-        _LOGGER.debug("Attempting to connect to device: serial=%s, device_type=%s, host=%s", 
-                     serial, device_type, host)
-        
+        """Validate a local connection without retaining the test MQTT client."""
         device = get_device(serial, credential, device_type)
-        
-        # Check if device creation failed
         if device is None:
-            _LOGGER.error("Failed to create device object for serial=%s, device_type=%s. "
-                         "This usually indicates an unknown or unsupported device type.", 
-                         serial, device_type)
             raise CannotConnect
-        
-        _LOGGER.debug("Successfully created device object of type: %s", type(device).__name__)
 
-        # Find device using discovery
+        host = (host or "").strip()
         if not host:
-            _LOGGER.debug("No host provided, starting device discovery for serial: %s", serial)
-            discovered = threading.Event()
-
-            def _callback(address: str) -> None:
-                _LOGGER.debug("Found device at %s", address)
-                nonlocal host
-                host = address
-                discovered.set()
-
-            discovery = DysonDiscovery()
-            discovery.register_device(device, _callback)
-            
-            # Log the expected service type for debugging
-            expected_service_type = "_360eye_mqtt._tcp.local." if device_type == "N223" else "_dyson_mqtt._tcp.local."
-            _LOGGER.debug("Starting discovery for device_type=%s, expecting service type: %s", 
-                         device_type, expected_service_type)
-            
-            discovery.start_discovery(await async_get_instance(self.hass))
-            succeed = await self.hass.async_add_executor_job(
-                discovered.wait, DISCOVERY_TIMEOUT
-            )
-            discovery.stop_discovery()
-            if not succeed:
-                _LOGGER.error("Discovery timed out for device serial=%s, device_type=%s. "
-                             "Expected service type: %s", serial, device_type, expected_service_type)
+            host = await async_discover_host(self.hass, serial)
+            if not host:
                 raise CannotFind
-            
-            _LOGGER.debug("Discovery successful, device found at: %s", host)
 
-        # Try connect to the device
-        _LOGGER.debug("Attempting MQTT connection to device at %s", host)
         try:
-            device.connect(host)
-            _LOGGER.debug("Successfully connected to device via MQTT")
-        except DysonInvalidCredential:
-            _LOGGER.error("Invalid credentials for device serial=%s", serial)
-            raise InvalidAuth
-        except DysonException as err:
-            _LOGGER.error("Failed to connect to device serial=%s, device_type=%s, host=%s: %s (%s)", 
-                         serial, device_type, host, type(err).__name__, err)
-            
-            # Add specific logging for MQTT connection refused errors
-            if "Connection refused" in str(err) or "result code 7" in str(err):
-                _LOGGER.error("MQTT connection refused (result code 7) - this may indicate:")
-                _LOGGER.error("  1. Wrong device type mapping (expected: %s)", device_type)
-                _LOGGER.error("  2. Device firmware issue or unexpected state")
-                _LOGGER.error("  3. MQTT broker unavailable on device")
-                _LOGGER.error("  4. Network connectivity problems")
-                _LOGGER.error("  5. Device already has too many connections")
-            
-            raise CannotConnect
+            await async_connect_device(
+                self.hass, device, host, validate_only=True
+            )
+        except DysonInvalidCredential as err:
+            raise InvalidAuth from err
+        except (DysonException, OSError) as err:
+            raise CannotConnect from err
 
 
 class CannotConnect(HomeAssistantError):
