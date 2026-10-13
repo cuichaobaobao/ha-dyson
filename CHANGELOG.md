@@ -3,6 +3,11 @@
 This fork is maintained at https://github.com/cuichaobaobao/ha-dyson.
 Install and update from this repository. Upstream releases are separate.
 
+## 1.7.2 — 2026-10-13
+
+- Display this fork in HACS as **Dyson (cuichaobaobao)**.
+- Keep the HA integration name, domain, entity identities and device behavior unchanged.
+
 ## 1.7.1 — 2026-10-13
 
 First maintenance release of this fork, based on the upstream 1.7.0 code.
@@ -26,8 +31,8 @@ A DHCP address change during a running connection may require reloading the inte
 
 ## Maintenance
 
-The default branch is `main`. Temporary repair branches can be used for testing
-and merged into this fork; they do not require upstream approval.
+Changes are made directly on this fork's `main` branch. Do not create repair
+branches or pull requests unless the repository owner explicitly asks for them.
 
 For each release, update the manifest version and add a changelog entry.
 GitHub-hosted Actions publishes the matching version only after regression
