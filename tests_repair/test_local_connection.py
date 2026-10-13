@@ -295,6 +295,35 @@ class CompatibilityTests(unittest.TestCase):
 
     def test_platforms_import_with_installed_dependencies(self):
         for platform in ("fan", "select", "sensor", "switch", "button", "climate",
-                         "humidifier", "binary_sensor", "camera", "vacuum"):
+                         "humidifier", "binary_sensor", "camera"):
             with self.subTest(platform=platform):
                 importlib.import_module(f"custom_components.dyson_local.{platform}")
+
+    def test_filter_capabilities_do_not_read_missing_status(self):
+        device = get_device(SERIAL, "test-only", "664")
+        self.assertIn("button", integration._async_get_platforms(device))
+
+    def test_big_quiet_controls_keep_original_payloads(self):
+        device = get_device(SERIAL, "test-only", "664")
+        device._set_configuration = Mock()
+        device.turn_on()
+        device._set_configuration.assert_called_with(fpwr="ON")
+        device.turn_off()
+        device._set_configuration.assert_called_with(fpwr="OFF")
+        device.enable_auto_mode()
+        device._set_configuration.assert_called_with(auto="ON")
+        device.set_tilt(50)
+        device._set_configuration.assert_called_with(otal="0050", otau="0050", anct="CUST")
+
+    def test_big_quiet_environmental_values(self):
+        device = get_device(SERIAL, "test-only", "664")
+        device._handle_message({
+            "msg": "ENVIRONMENTAL-CURRENT-SENSOR-DATA",
+            "data": {"p25r": "0012", "p10r": "0020", "co2r": "0650",
+                     "hchr": "0005", "tact": "2960", "hact": "0048"},
+        })
+        self.assertEqual(device.particulate_matter_2_5, 12)
+        self.assertEqual(device.particulate_matter_10, 20)
+        self.assertEqual(device.carbon_dioxide, 650)
+        self.assertEqual(device.formaldehyde, 0.005)
+        self.assertEqual(device.humidity, 48)

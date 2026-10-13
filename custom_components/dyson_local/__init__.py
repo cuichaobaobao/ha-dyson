@@ -151,9 +151,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except BaseException:
         hass.data[DOMAIN][DATA_DEVICES].pop(entry.entry_id, None)
         hass.data[DOMAIN][DATA_COORDINATORS].pop(entry.entry_id, None)
-        if coordinator is not None:
-            await coordinator.async_shutdown()
-        await hass.async_add_executor_job(disconnect_device, device)
+        try:
+            if coordinator is not None:
+                await coordinator.async_shutdown()
+        finally:
+            await hass.async_add_executor_job(disconnect_device, device)
         raise
     return True
 
@@ -204,7 +206,9 @@ def _async_get_platforms(device: DysonDevice) -> List[str]:
         platforms.extend(["binary_sensor", "climate"])
     if isinstance(device, DysonPurifierHumidifyCool):
         platforms.append("humidifier")
-    if hasattr(device, "filter_life") or hasattr(device, "carbon_filter_life") or hasattr(device, "hepa_filter_life"):
+    if any(hasattr(type(device), attr) for attr in (
+        "filter_life", "carbon_filter_life", "hepa_filter_life"
+    )):
         platforms.append("button")
     return platforms
 

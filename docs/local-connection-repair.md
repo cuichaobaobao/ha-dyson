@@ -30,3 +30,13 @@ libdyson-neon packages with synthetic device metadata and mocked network
 boundaries. These tests do not establish connectivity to a physical purifier
 or validate Dyson cloud authentication. No release or HA deployment is part
 of this branch.
+
+Additional review findings:
+- Capability detection now checks class attributes without evaluating filter
+  readings before status data arrives.
+- The upstream vacuum module still imports removed HA vacuum state constants
+  (see upstream PR #313). This purifier-focused branch does not claim to repair
+  robot vacuum compatibility. Import smoke tests cover purifier platforms and
+  the account camera platform, with HA camera/stream dependencies installed.
+- HACS repository checks require Issues and repository Topics to be configured
+  on this fork. These are repository settings, not integration code errors.

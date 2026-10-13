@@ -28,6 +28,21 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Install actual runtime dependencies
         run: python -m pip install "homeassistant==${{ matrix.ha }}" "libdyson-neon==1.6.0"
+      - name: Install HA camera and stream dependencies
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import json
+          from pathlib import Path
+          import subprocess
+          import sys
+          root = Path(next(iter(importlib.util.find_spec("homeassistant").submodule_search_locations)))
+          requirements = set()
+          for domain in ("camera", "stream"):
+              manifest = json.loads((root / "components" / domain / "manifest.json").read_text())
+              requirements.update(manifest.get("requirements", []))
+          subprocess.check_call([sys.executable, "-m", "pip", "install", *sorted(requirements)])
+          PY
       - name: Compile integration
         run: python -m compileall -q custom_components/dyson_local
       - name: Run isolated network and lifecycle regressions

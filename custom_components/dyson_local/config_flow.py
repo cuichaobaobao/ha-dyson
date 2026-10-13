@@ -410,7 +410,7 @@ class DysonLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle step to set host."""
         errors = {}
         if info is not None:
-            # Use the device info's built-in mapping method which handles variants properly
+            # Preserve supported variant-specific MQTT topics.
             device_type = resolve_device_type(self._device_info)
             
             _LOGGER.debug("Cloud ProductType: %s, variant: %s, Mapped to: %s", 
